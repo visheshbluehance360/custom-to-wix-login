@@ -9,10 +9,6 @@ addEventListener('load', () => {
             fp.get()
         )
         .then(fingerprint => {
-            console.log('fp.get()', fingerprint);
-
-            console.log("fingerprint.sealedResult", fingerprint.sealedResult);
-
             return fingerprint_backend(fingerprint.sealedResult)
                 .then(response =>
                     console.log("Finished with status: ", response)

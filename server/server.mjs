@@ -38,6 +38,7 @@ async function fingerprint_backend(sealedData) {
                 algorithm: DecryptionAlgorithm.Aes256Gcm
             }]
         );
+
         return unsealedData;
     } catch (error) {
         console.error('Unseal error:', error);
@@ -68,10 +69,7 @@ app.post('/fingerprint', async (req, res) => {
 
         return res.status(200).json({
             status: 'success',
-            received: {
-                sealedResult,
-                unsealedData
-            }
+            received: unsealedData
         });
     } catch (err) {
         console.error('Error:', err);

@@ -1,109 +1,93 @@
-import { unsealEventsResponse, DecryptionAlgorithm } from "@fingerprintjs/fingerprintjs-pro-server-api";
+import dotenv from 'dotenv';
+dotenv.config();
 
-const BASE64_KEY = 'E5riDOQB9Bb6ZssD8NwsbniC9laRlqB4TAtQlcign4I=';
+import express from 'express';
+import cors from 'cors';
 
-// const AccessControlAllowOrigin = 'ozzy.school';
+import bodyParser from 'body-parser';
+const { json } = bodyParser;
 
-export async function fingerprint_backend(sealedData) {
-    const decryptionKey = BASE64_KEY;
+import { unsealEventsResponse, DecryptionAlgorithm } from '@fingerprintjs/fingerprintjs-pro-server-api';
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(cors());
+app.use(json()); // parse JSON body
+
+// Unseal helper
+async function fingerprint_backend(sealedData) {
+    if (!process.env.BASE64_KEY) {
+        console.error('BASE64_KEY environment variable is not set');
+        return null;
+    }
+
+    const decryptionKey = process.env.BASE64_KEY;
 
     if (!sealedData || !decryptionKey) {
-        console.error('Please set BASE64_KEY and BASE64_SEALED_RESULT environment variables');
+        console.error('Missing sealedData or decryptionKey');
+        return null;
     }
 
     try {
-        const unsealedData = await unsealEventsResponse(Buffer.from(sealedData, 'base64'), [{
-            key: Buffer.from(decryptionKey, 'base64'),
-            algorithm: DecryptionAlgorithm.Aes256Gcm,
-        },]);
-
+        const unsealedData = await unsealEventsResponse(
+            Buffer.from(sealedData, 'base64'),
+            [{
+                key: Buffer.from(decryptionKey, 'base64'),
+                algorithm: DecryptionAlgorithm.Aes256Gcm
+            }]
+        );
         return unsealedData;
-
-    } catch (e) {
-        console.error(e);
+    } catch (error) {
+        console.error('Unseal error:', error);
+        return null;
     }
 }
 
-// server -------
-import http from 'http';
+// Route to handle fingerprint
+app.post('/fingerprint', async (req, res) => {
+    const { sealedResult } = req.body;
 
-const PORT = process.env.PORT || 3000;
+    if (!sealedResult) {
+        return res.status(400).json({
+            status: 'error',
+            message: 'Missing required fields'
+        });
+    }
 
-// Helper to send JSON responses with CORS headers
-function sendJson(res, statusCode, data) {
-    res.writeHead(statusCode, {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
-    });
-    res.end(JSON.stringify(data));
-}
+    try {
+        const unsealedData = await fingerprint_backend(sealedResult);
 
-// Handler for /fingerprint POST requests
-function handleFingerprint(req, res) {
-    let body = '';
-
-    req.on('data', chunk => {
-        body += chunk;
-    });
-
-    req.on('end', async () => {
-        try {
-            const data = JSON.parse(body);
-
-            // Validate the required fields
-            if (!data || !data.sealedResult) {
-                sendJson(res, 400, { status: 'error', message: 'Missing required fields' });
-                return;
-            }
-
-            try {
-                const unsealedData = await fingerprint_backend(data.sealedResult);
-
-                if (unsealedData) {
-                    data['unsealedData'] = unsealedData;
-                } else {
-                    sendJson(res, 500, { status: 'error', message: 'Failed to unseal data' });
-                    return;
-                }
-            } catch (error) {
-                console.error('Error unsealing data:', err);
-                sendJson(res, 500, { status: 'error', message: 'Internal server error' });
-                return;
-            }
-
-            sendJson(res, 200, { status: 'success', received: data });
-        } catch (err) {
-            sendJson(res, 400, { status: 'error', message: 'Invalid JSON' });
+        if (!unsealedData) {
+            return res.status(500).json({
+                status: 'error',
+                message: 'Failed to unseal data'
+            });
         }
-    });
-}
 
-// Main server logic
-const server = http.createServer((req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS' && req.url === '/fingerprint') {
-        res.writeHead(204, {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type'
+        return res.status(200).json({
+            status: 'success',
+            received: {
+                sealedResult,
+                unsealedData
+            }
         });
-        res.end();
-        return;
-    }
-
-    if (req.method === 'POST' && req.url === '/fingerprint') {
-        handleFingerprint(req, res);
-    } else {
-        res.writeHead(200, {
-            'Content-Type': 'text/plain',
-            'Access-Control-Allow-Origin': '*'
+    } catch (err) {
+        console.error('Error:', err);
+        return res.status(500).json({
+            status: 'error',
+            message: 'Internal server error'
         });
-        res.end('Hello from Node.js server!\n');
     }
 });
 
-server.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}/`);
+// Fallback route
+app.get('/', (_req, res) => {
+    res.send('Hello from Express.js server!\n');
+});
+
+// Start server
+app.listen(PORT, () => {
+    console.log(`Server is running at http://localhost:${PORT}`);
 });
